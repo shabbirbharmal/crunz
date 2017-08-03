@@ -34,7 +34,8 @@ class ScheduleRunCommand extends Command
        $this->setName('schedule:run')
             ->setDescription('Starts the event runner.')
             ->setDefinition([
-               new InputArgument('source', InputArgument::OPTIONAL, 'The source directory for collecting the task files.', generate_path($this->config('source'))), 
+               new InputArgument('source', InputArgument::OPTIONAL, 'The source directory for collecting the task files.', generate_path($this->config('source'))),
+                new InputArgument('db', InputArgument::OPTIONAL, 'Database name', ''),
            ])
            ->setHelp('This command starts the Crunz event runner.');
     }
