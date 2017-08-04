@@ -41,6 +41,10 @@ class Utils
         return getenv('CRUNZ_BASE_DIR');
     }
 
+    public static function getAutoloadDir() {
+        return dirname(AUTOLOAD_PHP_FILE);
+    }
+
     /**
      * Get the root directory by the autoloader file
      *

@@ -245,8 +245,7 @@ class Event
     protected function serializeClosure($closure)
     {    
         $closure = (new Serializer())->serialize($closure);
-        
-        return __DIR__ . '/../crunz closure:run ' . http_build_query([$closure]);
+        return Utils::getAutoloadDir() . '\bin\crunz closure:run ' . http_build_query([$closure]);
     }
 
     /**
