@@ -1,96 +1,78 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Crunz;
 
-use Crunz\Configuration\Configuration;
-use Crunz\HttpClient\HttpClientInterface;
-use Crunz\Logger\ConsoleLoggerInterface;
+use Crunz\Exception\CrunzException;
+use Crunz\Configuration\Configurable;
 use Crunz\Logger\LoggerFactory;
-use Crunz\Pinger\PingableInterface;
-use Symfony\Component\Console\Output\OutputInterface;
 
-class EventRunner
-{
+class EventRunner {
+
+    use Configurable;
+
     /**
-     * Schedule objects.
+     * Schedule objects
      *
-     * @var Schedule[]
+     * @var array
      */
     protected $schedules = [];
+
     /**
-     * Instance of the invoker class.
+     * Instance of the invoker class
      *
      * @var \Crunz\Invoker
      */
     protected $invoker;
+
     /**
-     * The Logger.
+     * The Logger
      *
      * @var \Crunz\Logger\Logger
      */
     protected $logger;
+
     /**
-     * The Mailer.
+     * The Mailer
      *
      * @var \Crunz\Mailer
      */
     protected $mailer;
-    /** @var OutputInterface */
-    private $output;
-    /** @var Configuration */
-    private $configuration;
-    /** @var LoggerFactory */
-    private $loggerFactory;
-    /** @var HttpClientInterface */
-    private $httpClient;
-    /** @var ConsoleLoggerInterface */
-    private $consoleLogger;
 
     /**
-     * Instantiate the event runner.
+     * Instantiate the event runner
+     *
      */
-    public function __construct(
-        Invoker $invoker,
-        Configuration $configuration,
-        Mailer $mailer,
-        LoggerFactory $loggerFactory,
-        HttpClientInterface $httpClient,
-        ConsoleLoggerInterface $consoleLogger
-    ) {
-        $outputLogFile = $configuration->get('output_log_file');
-        $errorLogFile = $configuration->get('errors_log_file');
+    public function __construct()
+    {
+        $this->configurable();
 
-        $this->logger = $loggerFactory->create(
-            [
-                // Logging streams
-                'info' => $outputLogFile,
-                'error' => $errorLogFile,
-            ]
-        );
-        $this->invoker = $invoker;
-        $this->mailer = $mailer;
-        $this->configuration = $configuration;
-        $this->loggerFactory = $loggerFactory;
-        $this->httpClient = $httpClient;
-        $this->consoleLogger = $consoleLogger;
+        // Create an insance of the Logger 
+        $this->logger = LoggerFactory::makeOne([
+            
+            // Logging streams
+            'info'  => $this->config('output_log_file'),
+            'error' => $this->config('errors_log_file'),
+
+        ]);
+        
+        // Initializing the invoker
+        $this->invoker    = new Invoker();
+
+        // Initializing the invoker
+        $this->mailer     = new Mailer();
     }
 
     /**
-     * Handle an array of Schedule objects.
+     * Handle an array of Schedule objects
+     *
+     * @param array $schedules
      */
-    public function handle(OutputInterface $output, array $schedules = []): void
+    public function handle(Array $schedules = [])
     {
         $this->schedules = $schedules;
-        $this->output = $output;
-
+        
         foreach ($this->schedules as $schedule) {
-            $this->consoleLogger
-                ->debug("Invoke Schedule's ping before");
-
-            $this->pingBefore($schedule);
-
+            
             // Running the before-callbacks of the current schedule
             $this->invoke($schedule->beforeCallbacks());
 
@@ -101,156 +83,109 @@ class EventRunner
         }
 
         // Watch events until they are finished
-        $this->manageStartedEvents();
+        $this->ManageStartedEvents();
     }
 
     /**
-     * Run an event process.
+     * Run an event process
      *
      *
      * @param \Crunz\Event $event
      */
-    protected function start(Event $event): void
+    protected function start(Event $event)
     {
-        // if sendOutputTo or appendOutputTo have been specified
-        if (!$event->nullOutput()) {
-            // if sendOutputTo then truncate the log file if it exists
-            if (!$event->shouldAppendOutput) {
-                $f = @\fopen($event->output, 'r+');
-                if (false !== $f) {
-                    \ftruncate($f, 0);
-                    \fclose($f);
-                }
-            }
-            // Create an instance of the Logger specific to the event
-            $event->logger = $this->loggerFactory->create(
-                [
-                    // Logging streams
-                    'info' => $event->output,
-                ]
-            );
-        }
-
-        $this->consoleLogger
-            ->debug("Invoke Event's ping before.");
-
-        $this->pingBefore($event);
-
         // Running the before-callbacks
         $event->outputStream = ($this->invoke($event->beforeCallbacks()));
+        
         $event->start();
     }
 
     /**
-     * Manage the running processes.
+     * Manage the running processes
+     *
+     * @return void
      */
-    protected function manageStartedEvents(): void
+    protected function ManageStartedEvents()
     {
-        while ($this->schedules) {
+       while ($this->schedules) {
+            
             foreach ($this->schedules as $scheduleKey => $schedule) {
+                
                 $events = $schedule->events();
-                // 10% chance that refresh will be called
-                $refreshLocks = (\mt_rand(1, 100) <= 10);
-
-                /** @var Event $event */
                 foreach ($events as $eventKey => $event) {
-                    if ($refreshLocks) {
-                        $event->refreshLock();
-                    }
 
                     $proc = $event->getProcess();
                     if ($proc->isRunning()) {
                         continue;
                     }
 
-                    $runStatus = '';
-
                     if ($proc->isSuccessful()) {
-                        $this->consoleLogger
-                            ->debug("Invoke Event's ping after.");
-                        $this->pingAfter($event);
-
-                        $runStatus = '<info>success</info>';
-
-                        $event->outputStream .= $event->wholeOutput();
-                        $event->outputStream .= $this->invoke($event->afterCallbacks());
+                        
+                        $event->outputStream .= $proc->getOutput();
+                        $event->outputStream .= $this->invoke($event->afterCallbacks());                       
 
                         $this->handleOutput($event);
+                    
                     } else {
-                        $runStatus = '<error>fail</error>';
+                        
                         // Calling registered error callbacks with an instance of $event as argument
-                        $this->invoke($schedule->errorCallbacks(), [$event]);
+                        $this->invoke($schedule->errorCallbacks(), [$event]); 
+                        
                         $this->handleError($event);
+
                     }
-
-                    $id = $event->description ?: $event->getId();
-
-                    $this->consoleLogger
-                        ->debug("Task <info>${id}</info> status: {$runStatus}.");
 
                     // Dismiss the event if it's finished
                     $schedule->dismissEvent($eventKey);
+
                 }
 
                 // If there's no event left for the Schedule instance,
                 // run the schedule's after-callbacks and remove
                 // the Schedule from list of active schedules.                                                                                                                           zzzwwscxqqqAAAQ11
-                if (!\count($schedule->events())) {
-                    $this->consoleLogger
-                        ->debug("Invoke Schedule's ping after.");
-
-                    $this->pingAfter($schedule);
+                if (! count($schedule->events())) {
                     $this->invoke($schedule->afterCallbacks());
                     unset($this->schedules[$scheduleKey]);
                 }
             }
-
-            \usleep(250000);
-        }
+        } 
     }
 
     /**
-     * Invoke an array of callables.
+     * Invoke an array of callables
      *
      * @param array $callbacks
      * @param array $parameters
      *
      * @return string
      */
-    protected function invoke(array $callbacks = [], array $parameters = [])
+    protected function invoke(array $callbacks = [], Array $parameters = [])
     {
-        $output = '';
-        foreach ($callbacks as $callback) {
-            // Invoke the callback with buffering enabled
-            $output .= $this->invoker->call($callback, $parameters, true);
+       
+       $output = '';
+       foreach ($callbacks as $callback) {
+         // Invoke the callback with buffering enabled
+         $output .= $this->invoker->call($callback, $parameters, true);
         }
 
         return $output;
     }
 
-    protected function handleOutput(Event $event): void
+    /**
+     * Handle output
+     *
+     * @param \Crunz\Event
+     */
+    protected function handleOutput(Event $event)
     {
-        $logged = false;
-        $logOutput = $this->configuration
-            ->get('log_output')
-        ;
-
-        if ($logOutput) {
+        if ($this->config('log_output')) {
             $this->logger->info($this->formatEventOutput($event));
-            $logged = true;
-        }
-        if (!$event->nullOutput()) {
-            $event->logger->info($this->formatEventOutput($event));
-            $logged = true;
-        }
-        if (!$logged) {
+        } else {
             $this->display($event->getOutputStream());
         }
 
-        $emailOutput = $this->configuration
-            ->get('email_output')
-        ;
-        if ($emailOutput && !empty($event->getOutputStream())) {
+        // Email the output
+        if ($this->config('email_output')) {
             $this->mailer->send(
                 'Crunz: output for event: ' . (($event->description) ? $event->description : $event->getId()),
                 $this->formatEventOutput($event)
@@ -259,109 +194,73 @@ class EventRunner
     }
 
     /**
-     * Handle errors.
+     * Handle errors
      *
      * @param \Crunz\Event $event
      */
-    protected function handleError(Event $event): void
+    protected function handleError(Event $event)
     {
-        $logErrors = $this->configuration
-            ->get('log_errors')
-        ;
-        $emailErrors = $this->configuration
-            ->get('email_errors')
-        ;
-
-        if ($logErrors) {
+        if ($this->config('log_errors')) {
             $this->logger->error($this->formatEventError($event));
         } else {
-            $output = $event->wholeOutput();
-
-            $this->output
-                ->write("<error>{$output}</error>");
+            $this->display($event->getProcess()->getErrorOutput());
         }
 
         // Send error as email as configured
-        if ($emailErrors) {
+        if ($this->config('email_errors')) {
             $this->mailer->send(
                 'Crunz: reporting error for event:' . (($event->description) ? $event->description : $event->getId()),
                 $this->formatEventError($event)
             );
         }
-    }
 
-    /** @return string */
-    protected function formatEventOutput(Event $event)
-    {
-        return $event->description
-            . '('
-            . $event->getCommandForDisplay()
-            . ') '
-            . PHP_EOL
-            . PHP_EOL
-            . $event->outputStream
-            . PHP_EOL;
     }
 
     /**
-     * Format the event error message.
+     * Format the event output
      *
-     * @param \Crunz\Event $event
+     * @param  \Crunz\Event
      *
-     * @return string
+     * @return  string
+     */
+    protected function formatEventOutput(Event $event)
+    {
+        return $event->description
+               . '('
+               . $event->getCommandForDisplay()
+               . ') '
+               . PHP_EOL
+               . $event->outputStream
+               . PHP_EOL;
+    }
+
+    /**
+     * Format the event error message
+     *
+     * @param  \Crunz\Event $event
+     *
+     * @return  string
      */
     protected function formatEventError(Event $event)
     {
         return $event->description
-            . '('
-            . $event->getCommandForDisplay()
-            . ') '
-            . PHP_EOL
-            . $event->wholeOutput()
-            . PHP_EOL;
+               . '('
+               . $event->getCommandForDisplay()
+               . ') '
+               . PHP_EOL
+               . $event->getProcess()->getErrorOutput()
+               . PHP_EOL;   
     }
 
     /**
-     * Display content.
+     * Display content
      *
-     * @param string|null $output
+     * @param string $output
      */
-    protected function display($output): void
+    protected function display($output)
     {
-        $this->output
-            ->write(\is_string($output) ? $output : '')
-        ;
+        print is_string($output) ? $output : '';
     }
 
-    /**
-     * @param PingableInterface $schedule
-     */
-    private function pingBefore(PingableInterface $schedule): void
-    {
-        if (!$schedule->hasPingBefore()) {
-            $this->consoleLogger
-                ->debug('There is no ping before url.');
 
-            return;
-        }
-
-        $this->httpClient
-            ->ping($schedule->getPingBeforeUrl());
-    }
-
-    /**
-     * @param PingableInterface $schedule
-     */
-    private function pingAfter(PingableInterface $schedule): void
-    {
-        if (!$schedule->hasPingAfter()) {
-            $this->consoleLogger
-                ->debug('There is no ping after url.');
-
-            return;
-        }
-
-        $this->httpClient
-            ->ping($schedule->getPingAfterUrl());
-    }
 }

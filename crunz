@@ -13,59 +13,41 @@
 |
 */
 
-if (!\defined('CRUNZ_BIN')) {
-    \define('CRUNZ_BIN', __FILE__);
-}
-
-$generatePath = function (array $parts) {
-    return \implode(DIRECTORY_SEPARATOR, $parts);
-};
-$autoloadPaths = [
-    // Dependency
-    $generatePath(
-        [
-            __DIR__,
-            '..',
-            '..',
-            'autoload.php'
-        ]
-    ),
-    // Vendor/Bin
-    $generatePath(
-        [
-            __DIR__,
-            '..',
-            'autoload.php'
-        ]
-    ),
-    // Local dev
-    $generatePath(
-        [
-            __DIR__,
-            'vendor',
-            'autoload.php'
-        ]
-    ),
-];
-
-$autoloadFileFound = false;
-
-foreach ($autoloadPaths as $autoloadPath) {
-    if (\file_exists($autoloadPath)) {
-        require_once $autoloadPath;
-        $autoloadFileFound = true;
-        break;
+foreach ([        
+         
+        __DIR__ . '/../autoload.php',
+        __DIR__ . '/../../autoload.php',
+        __DIR__ . '/../vendor/autoload.php',
+        __DIR__ . '/vendor/autoload.php',
+        __DIR__ . '/../../vendor/autoload.php'
+         
+         ] as $file) {
+    
+    if (file_exists($file)) {
+       define('AUTOLOAD_PHP_FILE', $file);
+       break;
     }
 }
 
-if ($autoloadFileFound === false) {
-    throw new RuntimeException(
-        \sprintf(
-            'Unable to find "vendor/autoload.php" in "%s" paths.',
-            \implode('", "', $autoloadPaths)
-        )
+if (!defined('AUTOLOAD_PHP_FILE')) {
+     fwrite(STDERR,
+        'You need to set up the project dependencies using the following commands:' . PHP_EOL .
+        'wget http://getcomposer.org/composer.phar' . PHP_EOL .
+        'php composer.phar install' . PHP_EOL
     );
+    die(1);
 }
 
-$application = new Crunz\Application('Crunz Command Line Interface', 'v2.1.x-dev');
-$application->run();
+require AUTOLOAD_PHP_FILE;
+
+// Setting the base directory as an environment variable
+setbase(
+    getroot(AUTOLOAD_PHP_FILE)
+);
+
+// Setting the handler for catching/logging fatal and parse errors. 
+Crunz\ErrorHandler::getInstance()->set();
+
+
+$kernel = (new Crunz\Console\CommandKernel('Crunz Command Line Interface', 'v1.4.0'))
+        ->handle();

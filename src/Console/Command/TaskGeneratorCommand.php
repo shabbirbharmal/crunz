@@ -1,231 +1,165 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Crunz\Console\Command;
 
-use Crunz\Configuration\Configuration;
-use Crunz\Filesystem\FilesystemInterface;
-use Crunz\Path\Path;
-use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Question\Question;
+use Symfony\Component\Finder\Finder;
+use Crunz\Configuration\Configurable;
 
 class TaskGeneratorCommand extends Command
 {
+    use Configurable;
+
     /**
-     * Default option values.
-     *
-     * @var array
-     */
-    const DEFAULTS = [
-        'frequency' => 'everyThirtyMinutes',
-        'constraint' => 'weekdays',
-        'in' => 'path/to/your/command',
-        'run' => 'command/to/execute',
-        'description' => 'Task description',
-        'type' => 'basic',
-    ];
-    /**
-     * Stub content.
+     * Stub content
      *
      * @var string
      */
     protected $stub;
-    /** @var Configuration */
-    private $config;
-    /** @var FilesystemInterface */
-    private $filesystem;
-
-    public function __construct(Configuration $configuration, FilesystemInterface $filesystem)
-    {
-        $this->config = $configuration;
-        $this->filesystem = $filesystem;
-
-        parent::__construct();
-    }
 
     /**
-     * Configures the current command.
+     * Default option values
+     *
+     * @var array
      */
-    protected function configure(): void
-    {
-        $this
-            ->setName('make:task')
-            ->setDescription('Generates a task file with one task.')
-            ->setDefinition(
-                [
-                    new InputArgument(
-                        'taskfile',
-                        InputArgument::REQUIRED,
-                        'The task file name'
-                    ),
-                    new InputOption(
-                        'frequency',
-                        'f',
-                        InputOption::VALUE_OPTIONAL,
-                        "The task's frequency",
-                        self::DEFAULTS['frequency']
-                    ),
-                    new InputOption(
-                        'constraint',
-                        'c',
-                        InputOption::VALUE_OPTIONAL,
-                        "The task's constraint",
-                        self::DEFAULTS['constraint']
-                    ),
-                    new InputOption(
-                        'in',
-                        'i',
-                        InputOption::VALUE_OPTIONAL,
-                        "The command's path",
-                        self::DEFAULTS['in']
-                    ),
-                    new InputOption(
-                        'run',
-                        'r',
-                        InputOption::VALUE_OPTIONAL,
-                        "The task's command",
-                        self::DEFAULTS['run']
-                    ),
-                    new InputOption(
-                        'description',
-                        'd',
-                        InputOption::VALUE_OPTIONAL,
-                        "The task's description",
-                        self::DEFAULTS['description']
-                    ),
-                    new InputOption(
-                        'type',
-                        't',
-                        InputOption::VALUE_OPTIONAL,
-                        'The task type',
-                        self::DEFAULTS['type']
-                    ),
-                ]
-            )
-            ->setHelp('This command makes a task file skeleton.');
-    }
+    protected $defaults = [
+        
+        'frequency'   => 'everyThirtyMinutes',
+        'constraint'  => 'weekdays',
+        'in'          => 'path/to/your/command',
+        'run'         => 'command/to/execute',
+        'description' => 'Task description',
+        'type'        => 'basic',
+    ];
 
     /**
-     * Executes the current command.
+     * Configures the current command
      *
-     * @param \Symfony\Component\Console\Input\InputInterface   $input
-     * @param \Symfony\Component\Console\Output\OutputInterface $output
+     */
+    protected function configure()
+    {
+        $this->configurable();
+
+        $this->setName('make:task')
+             ->setDescription('Generates a task file with one task.')
+             ->setDefinition([
+
+                new InputArgument('taskfile',         InputArgument::REQUIRED,   'The task file name'),               
+                
+                new InputOption('frequency',    'f',  InputOption::VALUE_OPTIONAL,   'The task\'s frequency',   $this->defaults['frequency']),
+                new InputOption('constraint',   'c',  InputOption::VALUE_OPTIONAL,   'The task\'s constraint',  $this->defaults['constraint']),
+                new InputOption('in',           'i',  InputOption::VALUE_OPTIONAL,   'The command\'s path',     $this->defaults['in']),
+                new InputOption('run',          'r',  InputOption::VALUE_OPTIONAL,   'The task\'s command',     $this->defaults['run']),
+                new InputOption('description',  'd',  InputOption::VALUE_OPTIONAL,   'The task\'s description', $this->defaults['description']),
+                new InputOption('type',         't',  InputOption::VALUE_OPTIONAL,   'The task type',           $this->defaults['type']),
+
+            ])
+            ->setHelp('This command makes a task file skeleton.');
+    } 
+
+    /**
+     * Executes the current command
      *
-     * @return int|null null or 0 if everything went fine, or an error code
+     * @param use Symfony\Component\Console\Input\InputInterface $input
+     * @param use Symfony\Component\Console\Input\OutputIterface $output
+     *
+     * @return null|int null or 0 if everything went fine, or an error code
      */
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $this->input = $input;
+        $this->input  = $input;
         $this->output = $output;
 
-        $this->arguments = $input->getArguments();
-        $this->options = $input->getOptions();
-        $this->stub = $this->getStub();
-
+        $this->arguments = $input->getArguments();        
+        $this->options   = $input->getOptions();  
+        $this->stub      = $this->getStub();
+       
         if ($this->stub) {
-            $this
-                ->replaceFrequency()
-                ->replaceConstraint()
-                ->replaceCommand()
-                ->replacePath()
-                ->replaceDescription()
-            ;
-        }
+
+            $this->replaceFrequency()
+                 ->replaceConstraint()
+                 ->replaceCommand()
+                 ->replacePath()
+                 ->replaceDescription();
+        } 
 
         if ($this->save()) {
             $output->writeln('<info>The task file generated successfully</info>');
         } else {
             $output->writeln('<comment>There was a problem when generating the file. Please check your command.</comment>');
         }
+        exit();
     }
 
     /**
-     * Save the generate task skeleton into a file.
+     * Save the generate task skeleton into a file
      *
-     * @return bool
+     * @return boolean
      */
     protected function save()
     {
-        $filename = Path::create([$this->outputPath(), $this->outputFile()]);
-
-        return (bool) \file_put_contents($filename->toString(), $this->stub);
-    }
+        return file_put_contents($this->outputPath() . '/' . $this->outputFile(), $this->stub);               
+    }  
 
     /**
-     * Ask a question.
+     * Ask a question
      *
-     * @param string $question
+     * @param  string $quetion
      *
-     * @return ?string
+     * @return string
      */
     protected function ask($question)
     {
-        $helper = $this->getHelper('question');
+        $helper   = $this->getHelper('question');
         $question = new Question("<question>{$question}</question>");
-
+        
         return $helper->ask($this->input, $this->output, $question);
     }
 
     /**
-     * Return the output path.
+     * Return the output path
      *
      * @return string
      */
     protected function outputPath()
     {
-        $source = $this->config
-            ->getSourcePath()
-        ;
-        $destination = $this->ask('Where do you want to save the file? (Press enter for the current directory)');
-        $outputPath = null !== $destination ? $destination : $source;
-
-        if (!\file_exists($outputPath)) {
-            \mkdir($outputPath, 0744, true);
+        $destination = $this->ask('Where do you want to save the file? (Press enter for the current directory)');       
+        $output_path = !is_null($destination) ? $destination : generate_path($this->config('source'));
+        
+        if (!file_exists($output_path)) {
+            mkdir($output_path, 0744, true);
         }
 
-        return $outputPath;
+        return $output_path;
     }
-
+    
     /**
-     * Populate the output filename.
+     * Populate the output filename
      *
      * @return string
      */
     protected function outputFile()
     {
-        $suffix = $this->config
-            ->get('suffix')
-        ;
-
-        return \preg_replace('/Tasks|\.php$/', '', $this->arguments['taskfile']) . $suffix;
+       return preg_replace('/Tasks|\.php$/', '', $this->arguments['taskfile']) . $this->config('suffix');
     }
 
     /**
-     * Get the task stub.
+     * Get the task stub
      *
      * @return string
      */
     protected function getStub()
     {
-        $projectRootDirectory = $this->filesystem
-            ->projectRootDirectory();
-        $path = Path::fromStrings(
-            $projectRootDirectory,
-            'src',
-            'Stubs',
-            \ucfirst($this->type() . 'Task.php')
-        );
-
-        return $this->filesystem
-            ->readContent($path->toString());
+        return file_get_contents(__DIR__ . '/../../Stubs/' . ucfirst($this->type() . 'Task.php'));
     }
 
     /**
-     * Get the task type.
+     * Get the task type
      *
      * @return string
      */
@@ -234,53 +168,59 @@ class TaskGeneratorCommand extends Command
         return $this->options['type'];
     }
 
+
     /**
-     * Replace frequency.
+     * Replace frequency
+     *
+     * @return void
      */
     protected function replaceFrequency()
     {
-        $this->stub = \str_replace('DummyFrequency', \rtrim($this->options['frequency'], '()'), $this->stub);
-
+        $this->stub = str_replace('DummyFrequency', rtrim($this->options['frequency'], '()'), $this->stub);
         return $this;
     }
 
     /**
-     * Replace constraint.
+     * Replace constraint
+     *
+     * @return void
      */
     protected function replaceConstraint()
     {
-        $this->stub = \str_replace('DummyConstraint', \rtrim($this->options['constraint'], '()'), $this->stub);
-
+        $this->stub = str_replace('DummyConstraint', rtrim($this->options['constraint'], '()'), $this->stub);
         return $this;
     }
 
     /**
-     * Replace command.
+     * Replace command
+     *
+     * @return void
      */
     protected function replaceCommand()
     {
-        $this->stub = \str_replace('DummyCommand', $this->options['run'], $this->stub);
-
+        $this->stub = str_replace('DummyCommand', $this->options['run'], $this->stub);
         return $this;
     }
 
     /**
-     * Replace path.
+     * Replace path
+     *
+     * @return void
      */
     protected function replacePath()
     {
-        $this->stub = \str_replace('DummyPath', $this->options['in'], $this->stub);
-
+        $this->stub = str_replace('DummyPath', $this->options['in'], $this->stub);
         return $this;
     }
 
     /**
-     * Replace description.
+     * Replace description
+     *
+     * @return void
      */
     protected function replaceDescription()
     {
-        $this->stub = \str_replace('DummyDescription', $this->options['description'], $this->stub);
-
+        $this->stub = str_replace('DummyDescription', $this->options['description'], $this->stub);
         return $this;
-    }
+    }  
 }

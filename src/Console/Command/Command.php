@@ -1,38 +1,36 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Crunz\Console\Command;
 
 use Symfony\Component\Console\Command\Command as BaseCommand;
 
-class Command extends BaseCommand
-{
+class Command extends BaseCommand {
+    
     /**
-     * Command arguments.
+     * Command arguments
      *
      * @var array
      */
     protected $arguments;
 
     /**
-     * Command options.
+     * Command options
      *
      * @var array
      */
     protected $options;
 
     /**
-     * Input object.
+     * Input object
      *
-     * @var \Symfony\Component\Console\Input\InputInterface
+     * @var use Symfony\Component\Console\Input\InputInterface
      */
     protected $input;
 
     /**
-     * output object.
+     * output object
      *
-     * @var \Symfony\Component\Console\Output\OutputInterface
+     * @var use Symfony\Component\Console\Input\OutputInterface
      */
-    protected $output;
+    protected $output;    
 }

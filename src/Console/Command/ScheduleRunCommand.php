@@ -1,179 +1,112 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Crunz\Console\Command;
 
-use Crunz\Configuration\Configuration;
-use Crunz\EventRunner;
-use Crunz\Schedule;
-use Crunz\Task\Collection;
-use Crunz\Task\TaskNumber;
-use Crunz\Task\Timezone;
-use Crunz\Task\WrongTaskInstanceException;
-use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
-use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Finder\Finder;
+use Crunz\Schedule;
+use Crunz\Invoker;
+use Crunz\EventRunner;
+use Crunz\Configuration\Configurable;
 
 class ScheduleRunCommand extends Command
 {
+    use Configurable;
+
     /**
-     * Running tasks.
+     * Running tasks
      *
      * @var array
      */
     protected $runningEvents = [];
-    /** @var Collection */
-    private $taskCollection;
-    /** @var Configuration */
-    private $configuration;
-    /** @var EventRunner */
-    private $eventRunner;
-    /** @var Timezone */
-    private $taskTimezone;
-    /** @var Schedule\ScheduleFactory */
-    private $scheduleFactory;
-
-    public function __construct(
-        Collection $taskCollection,
-        Configuration $configuration,
-        EventRunner $eventRunner,
-        Timezone $taskTimezone,
-        Schedule\ScheduleFactory $scheduleFactory
-    ) {
-        $this->taskCollection = $taskCollection;
-        $this->configuration = $configuration;
-        $this->eventRunner = $eventRunner;
-        $this->taskTimezone = $taskTimezone;
-        $this->scheduleFactory = $scheduleFactory;
-
-        parent::__construct();
-    }
 
     /**
-     * Configures the current command.
+     * Configures the current command
+     *
      */
-    protected function configure(): void
+    protected function configure()
     {
-        $this->setName('schedule:run')
+       $this->configurable();
+       
+       $this->setName('schedule:run')
             ->setDescription('Starts the event runner.')
-            ->setDefinition(
-                [
-                    new InputArgument(
-                        'source',
-                        InputArgument::OPTIONAL,
-                        'The source directory for collecting the task files.',
-                        $this->configuration
-                            ->getSourcePath()
-                    ),
-                    new InputArgument(
-                        'db',
-                        InputArgument::OPTIONAL,
-                        'Database name.',
-                      ''
-                    ),
-                    new InputArgument(
-                        'client_url',
-                        InputArgument::OPTIONAL,
-                        'Client URL',
-                        ''
-                    )
-                ]
-            )
-            ->addOption(
-                'force',
-                'f',
-                InputOption::VALUE_NONE,
-                'Run all tasks regardless of configured run time.'
-            )
-            ->addOption(
-                'task',
-                't',
-                InputOption::VALUE_REQUIRED,
-                'Which task to run. Provide task number from <info>schedule:list</info> command.',
-                null
-            )
+            ->setDefinition([
+               new InputArgument('source', InputArgument::OPTIONAL, 'The source directory for collecting the task files.', generate_path($this->config('source'))),
+                new InputArgument('db', InputArgument::OPTIONAL, 'Database name', ''),
+                new InputArgument('client_url', InputArgument::OPTIONAL, 'Client URL', ''),
+           ])
            ->setHelp('This command starts the Crunz event runner.');
     }
-
+   
     /**
-     * {@inheritdoc}
+     * Executes the current command
      *
-     * @throws WrongTaskInstanceException
+     * @param use Symfony\Component\Console\Input\InputInterface $input
+     * @param use Symfony\Component\Console\Input\OutputIterface $output
+     *
+     * @return null|int null or 0 if everything went fine, or an error code
      */
     protected function execute(InputInterface $input, OutputInterface $output)
-    {
+    {        
         $this->arguments = $input->getArguments();
-        $this->options = $input->getOptions();
-        $task = $this->options['task'];
-        /** @var \SplFileInfo[] $files */
-        $files = $this->taskCollection
-            ->all($this->arguments['source']);
-
-        if (!\count($files)) {
+        $this->options   = $input->getOptions();        
+        $files           = $this->collectFiles($this->arguments['source']); 
+    
+        if (!count($files)) {
             $output->writeln('<comment>No task found! Please check your source path.</comment>');
-
-            return 0;
+            exit();
         }
-
+                       
         // List of schedules
         $schedules = [];
-        $tasksTimezone = $this->taskTimezone
-            ->timezoneForComparisons()
-        ;
-
+        
         foreach ($files as $file) {
-            $schedule = require $file->getRealPath();
+            
+            $schedule = require $file->getRealPath();           
             if (!$schedule instanceof Schedule) {
-                throw WrongTaskInstanceException::fromFilePath($file, $schedule);
                 continue;
             }
 
-            if (\count($schedule->events())) {
+            // We keep the events which are due and dismiss the rest.
+            $schedule->events($schedule->dueEvents());            
+            
+            if (count($schedule->events())) {
                 $schedules[] = $schedule;
             }
         }
 
-        // Is specified task should be invoked?
-        if (\is_string($task)) {
-            $schedules = $this->scheduleFactory
-                ->singleTaskSchedule(TaskNumber::fromString($task), ...$schedules);
-        }
-
-        $schedules = \array_map(
-            function (Schedule $schedule) use ($tasksTimezone) {
-                if (false === $this->options['force']) {
-                    // We keep the events which are due and dismiss the rest.
-                    $schedule->events(
-                        $schedule->dueEvents(
-                            $tasksTimezone
-                        )
-                    );
-                }
-
-                return $schedule;
-            },
-            $schedules
-        );
-        $schedules = \array_filter(
-            $schedules,
-            static function (Schedule $schedule) {
-                return \count($schedule->events());
-            }
-        );
-
-        if (!\count($schedules)) {
+        if (!count($schedules)) {
             $output->writeln('<comment>No event is due!</comment>');
-
-            return 0;
+            exit();
         }
 
         // Running the events
-        $this->eventRunner
-            ->handle($output, $schedules)
-        ;
-
-        return 0;
+        (new EventRunner())
+        ->handle($schedules);
     }
+
+    /**
+     * Collect all task files
+     *
+     * @param  string $source
+     *
+     * @return Iterator
+     */
+    protected function collectFiles($source)
+    {    
+        if(!file_exists($source)) {
+            return [];
+        }
+        
+        $finder   = new Finder();
+        $iterator = $finder->files()
+                  ->name('*' . $this->config('suffix'))
+                  ->in($source);
+        
+        return $iterator;
+    }
+     
 }

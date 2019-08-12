@@ -1,6 +1,5 @@
 <?php
 
-declare(strict_types=1);
 /*
 |--------------------------------------------------------------------------------------
 |  Task File
@@ -15,13 +14,13 @@ declare(strict_types=1);
 use Crunz\Schedule;
 
 $scheduler = new Schedule();
-$task = $scheduler->run('DummyCommand');
-$task
-    ->description('DummyDescription')
-    ->in('DummyPath')
-    ->preventOverlapping()
-    ->DummyFrequency()
-    ->DummyConstraint()
-;
 
-return $scheduler;
+$scheduler->run('DummyCommand')
+          ->description('DummyDescription')
+          ->in('DummyPath')
+          ->DummyFrequency()
+          ->DummyConstraint()
+          ->preventOverlapping();
+
+
+return $scheduler;          

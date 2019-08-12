@@ -1,104 +1,101 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Crunz\Console\Command;
 
-use Crunz\Configuration\Configuration;
-use Crunz\Schedule;
-use Crunz\Task\Collection;
-use Crunz\Task\WrongTaskInstanceException;
-use Symfony\Component\Console\Helper\Table;
-use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Input\InputArgument;
+use Symfony\Component\Console\Input\InputOption;
+use Symfony\Component\Console\Helper\Table;
+use Symfony\Component\Finder\Finder;
+use Crunz\Schedule;
+use Crunz\Configuration\Configurable;
 
 class ScheduleListCommand extends Command
 {
-    /** @var Configuration */
-    private $configuration;
-    /** @var Collection */
-    private $taskCollection;
-
-    public function __construct(Configuration $configuration, Collection $taskCollection)
-    {
-        $this->configuration = $configuration;
-        $this->taskCollection = $taskCollection;
-
-        parent::__construct();
-    }
+    use Configurable;
 
     /**
-     * Configures the current command.
+     * Configures the current command
+     *
      */
-    protected function configure(): void
+    protected function configure()
     {
-        $this->setName('schedule:list')
+       $this->configurable();
+       
+       $this->setName('schedule:list')
             ->setDescription('Displays the list of scheduled tasks.')
-            ->setDefinition(
-                [
-                    new InputArgument(
-                        'source',
-                        InputArgument::OPTIONAL,
-                        'The source directory for collecting the tasks.',
-                        $this->configuration
-                            ->getSourcePath()
-                    ),
-                ]
-            )
-            ->setHelp('This command displays the scheduled tasks in a tabular format.');
-    }
-
-    /** {@inheritdoc}
-     * @throws WrongTaskInstanceException
+            ->setDefinition([
+               new InputArgument('source', InputArgument::OPTIONAL, 'The source directory for collecting the tasks.', generate_path($this->config('source'))), 
+           ])
+           ->setHelp('This command displays the scheduled tasks in a tabular format.');
+    } 
+   
+    /**
+     * Executes the current command
+     *
+     * @param use Symfony\Component\Console\Input\InputInterface $input
+     * @param use Symfony\Component\Console\Input\OutputIterface $output
+     *
+     * @return null|int null or 0 if everything went fine, or an error code
      */
     protected function execute(InputInterface $input, OutputInterface $output)
-    {
-        $this->options = $input->getOptions();
+    {        
+        $this->options   = $input->getOptions();
         $this->arguments = $input->getArguments();
-        /** @var \SplFileInfo[] $tasks */
-        $tasks = $this->taskCollection
-            ->all($this->arguments['source']);
-
-        if (!\count($tasks)) {
+        $task_files      = $this->collectTaskFiles($this->arguments['source']); 
+    
+        if (!count($task_files)) {
             $output->writeln('<comment>No task found!</comment>');
-
-            return 0;
+            exit();
         }
 
-        $table = new Table($output);
-        $table->setHeaders(
-            [
-                '#',
-                'Task',
-                'Expression',
-                'Command to Run',
-            ]
-        );
+        $table = new Table($output);   
+        $table->setHeaders(['#', 'Task', 'Expression', 'Command to Run']);
         $row = 0;
-
-        foreach ($tasks as $taskFile) {
-            $schedule = require $taskFile->getRealPath();
+        
+        foreach ($task_files as $key => $taskFile) {
+            
+            $schedule = require $taskFile->getRealPath();            
             if (!$schedule instanceof Schedule) {
-                throw WrongTaskInstanceException::fromFilePath($taskFile, $schedule);
                 continue;
-            }
+            } 
 
             $events = $schedule->events();
             foreach ($events as $event) {
-                $table->addRow(
-                    [
-                        ++$row,
-                        $event->description,
-                        $event->getExpression(),
-                        $event->getCommandForDisplay(),
-                    ]
-                );
+              
+              $table->addRow([
+                ++$row,
+                $event->description,
+                $event->getExpression(),
+                $event->getCommandForDisplay(),
+              ]); 
+
             }
         }
 
-        $table->render();
-
-        return 0;
+        $table->render(); 
     }
+ 
+    /**
+     * Collect all task files
+     *
+     * @param  string $source
+     *
+     * @return Iterator
+     */
+    public function collectTaskFiles($source)
+    {    
+        if(!file_exists($source)) {
+            return [];
+        }
+
+        $finder   = new Finder();
+        $iterator = $finder->files()
+                  ->name('*' . $this->config('suffix'))
+                  ->in($source);
+        
+        return $iterator;
+    }
+  
 }
