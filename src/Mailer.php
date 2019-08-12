@@ -1,37 +1,44 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Crunz;
 
-use Crunz\Configuration\Configurable;
+use Crunz\Configuration\Configuration;
+use Crunz\Exception\MailerException;
 
-class Mailer extends Singleton {
-
-    use Configurable;
-
-    /**
-     * Mailer instance
-     *
-     * @param \Swift_Mailer
-     */
+class Mailer
+{
+    /** @var \Swift_Mailer|null */
     protected $mailer;
+    /** @var Configuration */
+    private $configuration;
 
-    /**
-     * Instantiate the Mailer class
-     *
-     * @param \Swift_Mailer $mailer
-     */
-    public function __construct(\Swift_Mailer $mailer = null)
+    public function __construct(Configuration $configuration)
     {
-        $this->configurable();
-        $this->mailer = $mailer;
+        $this->configuration = $configuration;
     }
 
     /**
-     * Return the proper mailer
+     * Send an email.
      *
-     * @return \Swift_Mailer
+     * @throws MailerException
      */
-    protected function getMailer()
+    public function send(string $subject, string $message): void
+    {
+        $this->getMailer()
+            ->send(
+                $this->getMessage($subject, $message)
+            )
+        ;
+    }
+
+    /**
+     * Return the proper mailer.
+     *
+     * @throws MailerException
+     */
+    private function getMailer(): \Swift_Mailer
     {
         // If the mailer has already been defined via the constructor, return it.
         if ($this->mailer) {
@@ -39,90 +46,71 @@ class Mailer extends Singleton {
         }
 
         // Get the proper transporter
-        switch ($this->config('mailer.transport')) {           
+        switch ($this->config('mailer.transport')) {
             case 'smtp':
-            $transport = $this->getSmtpTransport();
-            break;
+                $transport = $this->getSmtpTransport();
+
+                break;
 
             case 'mail':
-            $transport = $this->getMailTranport();
-            break;
-            
+                throw new MailerException(
+                    "'mail' transport is no longer supported, please use 'smtp' or 'sendmail' transport."
+                );
+
+                break;
+
             default:
-            $transport = $this->getSendMailTransport();
+                $transport = $this->getSendMailTransport();
         }
 
-        return \Swift_Mailer::newInstance($transport);
+        $this->mailer = new \Swift_Mailer($transport);
+
+        return $this->mailer;
     }
 
     /**
-     * Get the SMTP transport
-     *
-     * @return \Swift_SmtpTransport
+     * Get the SMTP transport.
      */
-    protected function getSmtpTransport()
+    private function getSmtpTransport(): \Swift_SmtpTransport
     {
-      return \Swift_SmtpTransport::newInstance(               
-            
+        $object = new \Swift_SmtpTransport(
             $this->config('smtp.host'),
             $this->config('smtp.port'),
             $this->config('smtp.encryption')
+        );
 
-        )
-        ->setUsername($this->config('smtp.username'))
-        ->setPassword($this->config('smtp.password'));
+        return $object
+            ->setUsername($this->config('smtp.username'))
+            ->setPassword($this->config('smtp.password'))
+        ;
     }
 
     /**
-     * Get the Mail transport
-     *
-     * @return \Swift_SendmailTransport
+     * Get the Sendmail Transport.
      */
-    protected function getMailTrasport()
+    private function getSendMailTransport(): \Swift_SendmailTransport
     {
-        return \Swift_MailTransport::newInstance();
+        return new \Swift_SendmailTransport();
     }
 
     /**
-     * Get the Sendmail Transport
-     *
-     * @return \Swift_SendmailTransport
+     * Prepare a swift message object.
      */
-    protected function getSendMailTransport()
+    private function getMessage(string $subject, string $message): \Swift_Message
     {
-        return \Swift_SendmailTransport::newInstance();
+        $messageObject = new \Swift_Message($subject, $message);
+        $messageObject
+            ->setFrom([$this->config('mailer.sender_email') => $this->config('mailer.sender_name')])
+            ->setTo($this->config('mailer.recipients'))
+        ;
+
+        return $messageObject;
     }
 
-    /**
-     * Send an email
-     *
-     * @param  string $subject
-     * @param  string $message
-     * 
-     * @return boolean 
-     */
-    public function send($subject, $message)
+    private function config($key)
     {
-        $this->getMailer()->send($this->getMessage($subject, $message));
+        return $this->configuration
+            ->get($key)
+        ;
     }
-
-    /**
-     * Prepare a swift message object
-     *
-     * @param  string $subject
-     * @param  string $message
-     * 
-     * @return \Swift_Message
-     *
-     */
-    protected function getMessage($subject, $message)
-    {
-        return  \Swift_Message::newInstance()
-                 
-                 ->setBody($message)
-                 ->setSubject($subject)
-                 ->setFrom([$this->config('mailer.sender_email') => $this->config('mailer.sender_name')])
-                 ->setTo($this->config('mailer.recipients'));
-    }
-
 }

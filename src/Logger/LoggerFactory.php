@@ -1,38 +1,57 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Crunz\Logger;
 
+use Crunz\Configuration\Configuration;
+use Crunz\Task\Timezone;
 use Monolog\Logger as MonologLogger;
-use Crunz\Logger\Logger;
-use Crunz\Configuration\Configurable;
 
-class LoggerFactory {
+class LoggerFactory
+{
+    /** @var Configuration */
+    private $configuration;
 
     /**
-     * Create an instance of the Logger class
-     *
-     * @return \Logger\Logger
+     * @throws \Exception if the timezone supplied in configuration is not recognised as a valid timezone
      */
-    public static function makeOne(Array $streams = [])
+    public function __construct(
+        Configuration $configuration,
+        Timezone $timezoneProvider,
+        ConsoleLoggerInterface $consoleLogger
+    ) {
+        $this->configuration = $configuration;
+        $timezoneLog = $configuration->get('timezone_log');
+
+        if ($timezoneLog) {
+            $timezone = $timezoneProvider->timezoneForComparisons();
+            $consoleLogger->veryVerbose("Timezone for '<info>timezone_log</info>': '<info>{$timezone->getName()}</info>'");
+
+            MonologLogger::setTimezone($timezone);
+        }
+    }
+
+    /**
+     * @return Logger
+     */
+    public function create(array $streams = [])
     {
-        $logger = new Logger(new MonologLogger('crunz'));         
-                
+        $logger = new Logger(new MonologLogger('crunz'), $this->configuration);
+
         // Adding stream for normal output
-        foreach ($streams as $stream => $file) {           
-            
+        foreach ($streams as $stream => $file) {
             if (!$file) {
                 continue;
             }
 
-            $logger->addStream(   
+            $logger->addStream(
                 $file,
                 $stream,
                 false
             );
-            
         }
 
         return $logger;
-     }
-
+    }
 }
