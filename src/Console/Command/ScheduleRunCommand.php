@@ -67,6 +67,18 @@ class ScheduleRunCommand extends Command
                         $this->configuration
                             ->getSourcePath()
                     ),
+                    new InputArgument(
+                        'db',
+                        InputArgument::OPTIONAL,
+                        'Database name.',
+                      ''
+                    ),
+                    new InputArgument(
+                        'client_url',
+                        InputArgument::OPTIONAL,
+                        'Client URL',
+                        ''
+                    )
                 ]
             )
             ->addOption(
